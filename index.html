@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>設備安裝查驗 EQ Inspection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#7ec8e3; --primary:#1a73e8; --pending:#9e9e9e; --inprog:#ff9800; --done:#4caf50; --fail:#f44336;
+  --panel:#c6c6c6; --panel-light:#fff; --panel-dark:#555; --slot:#8b8b8b;
+}
+*{box-sizing:border-box;}
+html, body{image-rendering:pixelated;}
+body{
+  margin:0; font-family:"Press Start 2P","Helvetica Neue",monospace;
+  background:linear-gradient(#5fb7e0 0%, #9fd6ee 60%, #b8e0f0 100%);
+  background-attachment:fixed;
+  font-size:13px; color:#222; line-height:1.6;
+  padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+  padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right);
+  overflow-x:hidden;
+}
+.screen{display:none; min-height:100vh; padding:14px;}
+.screen.active{display:block;}
+h1{font-size:14px; margin:4px 0 14px; text-shadow:2px 2px 0 #2d5d8a; color:#fff; text-align:center; letter-spacing:1px;}
+h2{font-size:12px; margin:0 0 12px; color:#fff; text-shadow:2px 2px 0 #2d5d8a;}
+/* Minecraft-style bevelled panel */
+.card{
+  background:var(--panel); padding:14px; margin-bottom:12px;
+  border:none; image-rendering:pixelated;
+  box-shadow:
+    inset 3px 3px 0 var(--panel-light),
+    inset -3px -3px 0 var(--panel-dark),
+    0 3px 0 rgba(0,0,0,.3);
+}
+button{
+  font-family:"Press Start 2P",monospace;
+  font-size:12px; min-height:44px; border:none; cursor:pointer;
+  -webkit-tap-highlight-color: transparent;
+  image-rendering:pixelated;
+}
+.btn-primary, .btn-secondary, .btn-green, .btn-grey{
+  position:relative; width:100%; padding:14px 8px; font-weight:400;
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.5),
+    inset -2px -2px 0 rgba(0,0,0,.4),
+    0 3px 0 rgba(0,0,0,.35);
+}
+.btn-primary:active, .btn-secondary:active, .btn-green:active, .btn-grey:active{
+  transform:translateY(2px);
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.3), inset -2px -2px 0 rgba(255,255,255,.3);
+}
+.btn-primary{background:var(--primary); color:#fff; text-shadow:1px 1px 0 #003c8f;}
+.btn-secondary{background:#dcdcdc; color:var(--primary); text-shadow:1px 1px 0 #fff;}
+.btn-green{background:var(--done); color:#fff; text-shadow:1px 1px 0 #1b5e20;}
+.btn-grey{background:#9e9e9e; color:#fff; text-shadow:1px 1px 0 #555;}
+.btn-row{display:flex; gap:8px;}
+.btn-row button{flex:1;}
+label{display:block; font-size:11px; color:#2d5d8a; margin:12px 0 5px; font-weight:400; text-shadow:1px 1px 0 #fff;}
+input[type=text], textarea{
+  width:100%; font-size:15px; font-family:-apple-system,sans-serif; padding:10px; border:none; background:#fff;
+  box-shadow: inset 2px 2px 0 #999, inset -2px -2px 0 #fff;
+}
+textarea{min-height:60px; resize:vertical;}
+/* XP-bar style progress */
+.progress-bar{background:#3b3b3b; height:18px; overflow:hidden; margin:8px 0; box-shadow:inset 2px 2px 0 #000, inset -2px -2px 0 #6b6b6b;}
+.progress-fill{background:repeating-linear-gradient(90deg,#5fd84a 0 6px,#4caf50 6px 12px); height:100%; transition:width .3s;}
+/* Ore-style status dots */
+.status-dot{display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:middle;}
+.dot-pending{background:#9e9e9e; box-shadow:inset 2px 2px 0 #ccc, inset -2px -2px 0 #666;}
+.dot-inprog{background:#e0a92f; box-shadow:inset 2px 2px 0 #ffd966, inset -2px -2px 0 #8a6d1a;}
+.dot-done{background:#3fae4a; box-shadow:inset 2px 2px 0 #7be087, inset -2px -2px 0 #1f6e28;}
+.badge{font-size:10px; padding:4px 6px; font-weight:400; white-space:nowrap; font-family:"Press Start 2P",monospace;}
+.badge-pending{background:#9e9e9e; color:#333; box-shadow:inset 2px 2px 0 #ccc, inset -2px -2px 0 #666;}
+.badge-inprog{background:#e0a92f; color:#4a3a00; box-shadow:inset 2px 2px 0 #ffd966, inset -2px -2px 0 #8a6d1a;}
+.badge-done{background:#3fae4a; color:#0e3312; box-shadow:inset 2px 2px 0 #7be087, inset -2px -2px 0 #1f6e28;}
+/* inventory-slot style list item */
+.list-item{display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:var(--slot); margin-bottom:8px; box-shadow:inset 2px 2px 0 #b5b5b5, inset -2px -2px 0 #4a4a4a;}
+.list-item .meta{font-size:10px; color:#fff; margin-top:4px; text-shadow:1px 1px 0 #333;}
+.topbar{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+.topbar button{width:44px; height:44px; font-size:18px; background:#dcdcdc; box-shadow:inset 2px 2px 0 #fff, inset -2px -2px 0 #888;}
+.topbar h2{margin:0; flex:1;}
+.radio-group{display:flex; gap:10px; margin-top:4px;}
+.radio-opt{flex:1; text-align:center; padding:10px 4px; background:#dcdcdc; font-weight:400; cursor:pointer; font-size:11px; box-shadow:inset 2px 2px 0 #fff, inset -2px -2px 0 #888;}
+.radio-opt.selected-pass{background:var(--done); color:#fff; box-shadow:inset 2px 2px 0 #7be087, inset -2px -2px 0 #1f6e28;}
+.radio-opt.selected-fail{background:var(--fail); color:#fff; box-shadow:inset 2px 2px 0 #ff9a90, inset -2px -2px 0 #8f1e15;}
+.radio-opt.selected-na{background:#777; color:#fff; box-shadow:inset 2px 2px 0 #aaa, inset -2px -2px 0 #333;}
+.photo-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:10px 0;}
+.photo-thumb{aspect-ratio:1; object-fit:cover; width:100%; height:100%; box-shadow:inset 0 0 0 3px #8b8b8b;}
+.type-header{font-size:11px; font-weight:400; color:#fff; margin:14px 0 6px; text-shadow:2px 2px 0 #2d5d8a;}
+.section-title{font-size:12px; font-weight:400; margin:18px 0 8px; color:#fff; text-shadow:2px 2px 0 #2d5d8a;}
+#previewOverlay{position:fixed; inset:0; background:rgba(0,0,0,.9); display:none; z-index:100; align-items:center; justify-content:center; flex-direction:column;}
+#previewOverlay.active{display:flex;}
+#previewImg{max-width:95%; max-height:75%; box-shadow:0 0 0 4px #8b8b8b;}
+.overlay-actions{display:flex; gap:12px; margin-top:16px;}
+.overlay-actions button{padding:12px 20px;}
+.spinner-overlay{position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; z-index:200; align-items:center; justify-content:center; flex-direction:column;}
+.spinner-overlay.active{display:flex;}
+.spinner{width:32px; height:32px; background:#e0a92f; box-shadow:inset 3px 3px 0 #ffd966, inset -3px -3px 0 #8a6d1a; animation:spin 1s steps(8) infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.small-text{font-size:10px; color:#2d5d8a; text-align:center; margin-top:20px; text-shadow:1px 1px 0 rgba(255,255,255,.5);}
+#spinnerText{color:#fff; text-shadow:2px 2px 0 #000;}
+.msg{font-size:11px; padding:10px; margin:10px 0; font-family:"Press Start 2P",monospace;}
+.msg-ok{background:#3fae4a; color:#fff; box-shadow:inset 2px 2px 0 #7be087, inset -2px -2px 0 #1f6e28;}
+.msg-err{background:var(--fail); color:#fff; box-shadow:inset 2px 2px 0 #ff9a90, inset -2px -2px 0 #8f1e15;}
+hr{border:none; border-top:4px solid rgba(0,0,0,.15); margin:18px 0;}
+input[type=file]{display:none;}
+.mascot-row{display:flex; justify-content:center; gap:16px; margin-bottom:14px;}
+.mascot-row svg{image-rendering:pixelated; filter:drop-shadow(2px 3px 0 rgba(0,0,0,.3));}
+.detail-header-row{display:flex; align-items:center; gap:10px; flex:1;}
+#achievementToast{
+  position:fixed; top:calc(env(safe-area-inset-top) + 10px); left:50%; transform:translateX(-50%) translateY(-60px);
+  background:#2b2b2b; border:3px solid #fff; box-shadow:0 0 0 3px #000;
+  padding:10px 14px; display:flex; align-items:center; gap:8px; z-index:300;
+  transition:transform .25s ease-out; max-width:90vw;
+}
+#achievementToast.show{transform:translateX(-50%) translateY(0);}
+#achievementToast .ach-title{color:#ffeb3b; font-size:10px; text-shadow:1px 1px 0 #000;}
+#achievementToast .ach-text{color:#fff; font-size:11px; text-shadow:1px 1px 0 #000;}
+</style>
+</head>
+<body>
+
+<!-- SCREEN 1: HOME -->
+<div class="screen active" id="screen-home">
+  <h1>設備安裝查驗 EQ Inspection</h1>
+  <div class="mascot-row" id="homeMascots"></div>
+  <div class="card">
+    <div id="homeProgressText" style="font-weight:700; font-size:17px;">0 / 171 設備完成</div>
+    <div class="progress-bar"><div class="progress-fill" id="homeProgressFill" style="width:0%"></div></div>
+  </div>
+  <div class="card" id="floorBreakdown"></div>
+  <button class="btn-primary" onclick="goTo('browser')">開始查驗 Start Inspection</button>
+  <div style="height:10px"></div>
+  <button class="btn-secondary" onclick="goTo('export')">匯出 Export</button>
+  <div class="small-text" id="lastUpdatedText"></div>
+</div>
+
+<!-- SCREEN 2: BROWSER -->
+<div class="screen" id="screen-browser">
+  <div class="topbar">
+    <button onclick="browserBack()">←</button>
+    <h2 id="browserTitle">樓層 Floors</h2>
+  </div>
+  <div id="browserContent"></div>
+</div>
+
+<!-- SCREEN 3: DETAIL -->
+<div class="screen" id="screen-detail">
+  <div class="topbar">
+    <button onclick="goTo('browser')">←</button>
+    <div class="detail-header-row">
+      <span id="detailMascot"></span>
+      <h2 id="detailTitle">-</h2>
+    </div>
+  </div>
+
+  <div class="section-title">填寫設備資訊</div>
+  <label>廠牌 Brand</label>
+  <input type="text" id="inpBrand" oninput="debouncedSave()">
+  <label>規格 Specifications</label>
+  <textarea id="inpSpecs" oninput="debouncedSave()"></textarea>
+  <label>查驗結果 Inspection Result</label>
+  <div class="radio-group">
+    <div class="radio-opt" id="optPass" onclick="setResult('pass')">○ 合格</div>
+    <div class="radio-opt" id="optFail" onclick="setResult('fail')">✕ 不合格</div>
+    <div class="radio-opt" id="optNa" onclick="setResult('na')">/ 不適用</div>
+  </div>
+  <label>備註 Remarks</label>
+  <textarea id="inpRemarks" oninput="debouncedSave()"></textarea>
+
+  <div class="section-title">現場照片 Photos</div>
+  <div class="photo-grid" id="photoGrid"></div>
+  <div class="btn-row">
+    <button class="btn-primary" onclick="triggerCamera()">📷 拍照 Take Photo</button>
+  </div>
+  <div style="height:8px"></div>
+  <button class="btn-secondary" onclick="triggerGallery()">🖼 從相簿選取 Choose from Album</button>
+  <input type="file" id="cameraInput" accept="image/*" capture="environment">
+  <input type="file" id="galleryInput" accept="image/*">
+
+  <hr>
+  <button class="btn-green" id="doneBtn" onclick="toggleDone()">標記完成 Mark as Done</button>
+  <div class="small-text" id="cameraError" style="color:var(--fail);"></div>
+</div>
+
+<!-- SCREEN 4: EXPORT -->
+<div class="screen" id="screen-export">
+  <div class="topbar">
+    <button onclick="goTo('home')">←</button>
+    <h2>匯出資料 Export</h2>
+  </div>
+  <div class="card" id="exportSummary"></div>
+  <button class="btn-primary" onclick="exportZip()">📦 下載照片 ZIP</button>
+  <div style="height:8px"></div>
+  <button class="btn-primary" onclick="exportExcel()">📊 下載自主檢查表 Excel</button>
+  <div style="height:8px"></div>
+  <button class="btn-secondary" onclick="exportJson()">💾 備份資料 JSON</button>
+  <hr>
+  <button class="btn-grey" onclick="document.getElementById('importInput').click()">📂 匯入備份 Import JSON</button>
+  <input type="file" id="importInput" accept="application/json">
+  <div id="exportMsg"></div>
+</div>
+
+<div id="previewOverlay">
+  <img id="previewImg">
+  <div class="overlay-actions">
+    <button class="btn-grey" onclick="closePreview()">關閉 Close</button>
+    <button class="btn-primary" style="background:var(--fail)" onclick="deletePreviewedPhoto()">刪除 Delete</button>
+  </div>
+</div>
+
+<div class="spinner-overlay" id="spinnerOverlay">
+  <div class="spinner"></div>
+  <div id="spinnerText" style="margin-top:12px; font-weight:600;">正在處理…</div>
+</div>
+
+<div id="achievementToast">
+  <span id="achToastIcon"></span>
+  <div>
+    <div class="ach-title">成就達成！Achievement Get!</div>
+    <div class="ach-text" id="achToastText"></div>
+  </div>
+</div>
+
+<script>
+// ---------- Pixel-art hard-hat engineer sprites ----------
+function renderPixelSprite(matrix, palette, px){
+  px = px || 4;
+  const cols = matrix[0].length, rows = matrix.length;
+  let rects = '';
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      const c = matrix[y][x];
+      if(c==='.') continue;
+      rects += `<rect x="${x*px}" y="${y*px}" width="${px}" height="${px}" fill="${palette[c]}"/>`;
+    }
+  }
+  return `<svg width="${cols*px}" height="${rows*px}" viewBox="0 0 ${cols*px} ${rows*px}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+// 10 cols x 14 rows
+const ENGINEER_MATRIX = [
+  ".hhhhhhh..",
+  "hhhhhhhhhh",
+  "bbbbbbbbbb",
+  ".ffffffff.",
+  ".feffffef.",
+  ".ffffffff.",
+  "..ffffff..",
+  "..vvvvvv..",
+  ".vvssssvv.",
+  "vvssssssvv",
+  ".vvvvvvvv.",
+  "..pppppp..",
+  "..pp..pp..",
+  "..kk..kk.."
+];
+const ENGINEER_MALE_PALETTE = {h:'#f4c430', b:'#caa000', f:'#f0b896', e:'#3a2a1a', v:'#ff8c00', s:'#ffffff', p:'#2d3e6b', k:'#1a1a1a'};
+const ENGINEER_FEMALE_PALETTE = {h:'#e91e8c', b:'#b8166e', f:'#f0b896', e:'#3a2a1a', v:'#00897b', s:'#ffffff', p:'#2d3e6b', k:'#1a1a1a'};
+function mascotSVG(gender, px){
+  return renderPixelSprite(ENGINEER_MATRIX, gender==='f'?ENGINEER_FEMALE_PALETTE:ENGINEER_MALE_PALETTE, px||5);
+}
+
+let achToastTimer = null;
+function showAchievement(text, icon){
+  document.getElementById('achToastText').textContent = text;
+  document.getElementById('achToastIcon').innerHTML = mascotSVG(icon||'m', 3);
+  const el = document.getElementById('achievementToast');
+  el.classList.add('show');
+  clearTimeout(achToastTimer);
+  achToastTimer = setTimeout(()=>el.classList.remove('show'), 1800);
+}
+
+const FLOOR_ORDER = ["RF","10F","9F","8F","7F","6F","5F","4F","3F","2F","1F","B1F","B2F","B3F"];
+
+const EQUIPMENT_LIST = [
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-1"},
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-2"},
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-3"},
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-4"},
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-8"},
+  {"floor":"RF","type":"Cooling Towers","id":"CT-RF-9"},
+  {"floor":"B1F","type":"SAF","id":"SAF-B1-3"},
+  {"floor":"B2F","type":"SAF","id":"SAF-B1-2A"},
+  {"floor":"B2F","type":"SAF","id":"SAF-B1-2B"},
+  {"floor":"1F","type":"EAF","id":"EAF-1-1"},
+  {"floor":"2F","type":"EAF","id":"EAF-2-1"},
+  {"floor":"3F","type":"EAF","id":"EAF-3-1"},
+  {"floor":"4F","type":"EAF","id":"EAF-4-1"},
+  {"floor":"5F","type":"EAF","id":"EAF-5-1"},
+  {"floor":"6F","type":"EAF","id":"EAF-6-1"},
+  {"floor":"7F","type":"EAF","id":"EAF-7-1"},
+  {"floor":"8F","type":"EAF","id":"EAF-8-1"},
+  {"floor":"B1F","type":"EAF","id":"EAF-B1-2A"},
+  {"floor":"B1F","type":"EAF","id":"EAF-B1-2B"},
+  {"floor":"B2F","type":"EAF","id":"EAF-B2-2A"},
+  {"floor":"B2F","type":"EAF","id":"EAF-B2-2B"},
+  {"floor":"B1F","type":"EAF","id":"EAF-B1-3"},
+  {"floor":"2F","type":"FCU","id":"FCU-2-1A"},
+  {"floor":"2F","type":"FCU","id":"FCU-2-2A"},
+  {"floor":"2F","type":"FCU","id":"FCU-2-4A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-5A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-1A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-3A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-8A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-7A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-7B"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-7C"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-9A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-9B"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-11A"},
+  {"floor":"1F","type":"FCU","id":"FCU-1-11B"},
+  {"floor":"2F","type":"FCU(AHU)","id":"FCU-1-6A"},
+  {"floor":"8F","type":"HTFCU","id":"HTFCU-8-3A"},
+  {"floor":"8F","type":"HTFCU","id":"HTFCU-8-3B"},
+  {"floor":"8F","type":"HTFCU","id":"HTFCU-8-6A"},
+  {"floor":"8F","type":"HTFCU","id":"HTFCU-8-6B"},
+  {"floor":"6F","type":"PAU","id":"PAU-6-1"},
+  {"floor":"6F","type":"PAU","id":"PAU-6-2"},
+  {"floor":"7F","type":"PAU","id":"PAU-7-1"},
+  {"floor":"7F","type":"PAU","id":"PAU-7-2"},
+  {"floor":"B1F","type":"SAF LMCP","id":"SAF-B1F-1"},
+  {"floor":"B1F","type":"SAF LMCP","id":"SAF-B1F-3"},
+  {"floor":"B2F","type":"SAF LMCP","id":"SAF-B1F-2-A"},
+  {"floor":"B2F","type":"SAF LMCP","id":"SAF-B1F-2-B"},
+  {"floor":"B2F","type":"SAF LMCP","id":"SAF-B2-1"},
+  {"floor":"B3F","type":"SAF LMCP","id":"SAF-B3-1"},
+  {"floor":"1F","type":"EAF LMCP","id":"EAF-1F-1"},
+  {"floor":"2F","type":"EAF LMCP","id":"EAF-2F-1"},
+  {"floor":"3F","type":"EAF LMCP","id":"EAF-3F-1"},
+  {"floor":"4F","type":"EAF LMCP","id":"EAF-4F-1"},
+  {"floor":"5F","type":"EAF LMCP","id":"EAF-5F-1"},
+  {"floor":"6F","type":"EAF LMCP","id":"EAF-6F-1"},
+  {"floor":"7F","type":"EAF LMCP","id":"EAF-7F-1"},
+  {"floor":"8F","type":"EAF LMCP","id":"EAF-8F-1"},
+  {"floor":"B1F","type":"EAF LMCP","id":"EAF-B1F-1"},
+  {"floor":"B1F","type":"EAF LMCP","id":"EAF-B1F-3"},
+  {"floor":"B1F","type":"EAF LMCP","id":"EAF-B1F-2A"},
+  {"floor":"B1F","type":"EAF LMCP","id":"EAF-B1F-2B"},
+  {"floor":"B2F","type":"EAF LMCP","id":"EAF-B2F-1"},
+  {"floor":"B2F","type":"EAF LMCP","id":"EAF-B2F-2A"},
+  {"floor":"B2F","type":"EAF LMCP","id":"EAF-B2F-2B"},
+  {"floor":"B3F","type":"EAF LMCP","id":"EAF-B3F-1"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-1A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-1"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-2A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-2"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2F-3A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-3"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2F-3B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-4"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-3C"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-5"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-4A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-7A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2F-4B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-7B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-5A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-7C"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-5B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-8A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-5C"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-9A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-6A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-9B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-6B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-11A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-7A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-11B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-7B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-12A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-9A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-12B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-12C"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-9B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-12D"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-10A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-13A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-10B"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-14A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-10C"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-14B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-11A"},
+  {"floor":"1F","type":"FCU LMCP","id":"FCU-1F-15A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-12A"},
+  {"floor":"9F","type":"FCU LMCP","id":"FCU-9F-2A"},
+  {"floor":"9F","type":"FCU LMCP","id":"FCU-9F-2B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2F-14A"},
+  {"floor":"9F","type":"FCU LMCP","id":"FCU-9F-2C"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2F-14B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-15A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-16A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-17A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-18A"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-18B"},
+  {"floor":"2F","type":"FCU LMCP","id":"FCU-2-18C"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3-1"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3-2"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3-3A"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3-3B"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3F-3C"},
+  {"floor":"3F","type":"FCU LMCP","id":"FCU-3F-3D"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4-1"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4-2"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4-3A"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4F-3B"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4F-3C"},
+  {"floor":"4F","type":"FCU LMCP","id":"FCU-4-3D"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-1"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-2"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-3A"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-3B"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-3C"},
+  {"floor":"5F","type":"FCU LMCP","id":"FCU-5F-3D"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-1"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-2"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-3A"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-3B"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-3C"},
+  {"floor":"6F","type":"FCU LMCP","id":"FCU-6F-3D"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-1"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-2"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-3A"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-3B"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-3C"},
+  {"floor":"7F","type":"FCU LMCP","id":"FCU-7F-3D"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-1A"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-2A"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3A"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3B"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3C"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3D"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3E"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3F"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3G"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3H"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3I"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3J"},
+  {"floor":"8F","type":"FCU LMCP","id":"FCU-8F-3K"},
+  {"floor":"9F","type":"FCU LMCP","id":"FCU-9F-1A"},
+  {"floor":"10F","type":"FCU LMCP","id":"FCU-10F-1A"},
+  {"floor":"10F","type":"FCU LMCP","id":"FCU-10F-1B"},
+  {"floor":"10F","type":"FCU LMCP","id":"FCU-10F-1C"},
+  {"floor":"B1F","type":"FCU LMCP","id":"FCU-B1F-1"},
+  {"floor":"B2F","type":"FCU LMCP","id":"FCU-B2F-1A"},
+  {"floor":"B3F","type":"FCU LMCP","id":"FCU-B3F-1"}
+];
+
+// ---------- IndexedDB minimal helper ----------
+let db = null;
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open('InspectionDB', 1);
+    req.onupgradeneeded = (e)=>{
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains('equipment')){
+        d.createObjectStore('equipment', {keyPath:'id'});
+      }
+      if(!d.objectStoreNames.contains('photos')){
+        const ps = d.createObjectStore('photos', {keyPath:'photoId'});
+        ps.createIndex('equipmentId','equipmentId',{unique:false});
+      }
+    };
+    req.onsuccess = (e)=>resolve(e.target.result);
+    req.onerror = (e)=>reject(e);
+  });
+}
+function tx(store, mode='readonly'){
+  return db.transaction(store, mode).objectStore(store);
+}
+function idbGetAll(store){
+  return new Promise((resolve,reject)=>{
+    const req = tx(store).getAll();
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = (e)=>reject(e);
+  });
+}
+function idbGet(store, key){
+  return new Promise((resolve,reject)=>{
+    const req = tx(store).get(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = (e)=>reject(e);
+  });
+}
+function idbPut(store, val){
+  return new Promise((resolve,reject)=>{
+    const req = tx(store,'readwrite').put(val);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = (e)=>reject(e);
+  });
+}
+function idbDelete(store, key){
+  return new Promise((resolve,reject)=>{
+    const req = tx(store,'readwrite').delete(key);
+    req.onsuccess = ()=>resolve();
+    req.onerror = (e)=>reject(e);
+  });
+}
+function idbGetByIndex(store, index, key){
+  return new Promise((resolve,reject)=>{
+    const req = tx(store).index(index).getAll(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = (e)=>reject(e);
+  });
+}
+
+// ---------- State ----------
+let equipmentMap = {}; // id -> equipment record
+let currentFloor = null;
+let currentEquipmentId = null;
+let saveTimer = null;
+let previewedPhotoId = null;
+
+async function initApp(){
+  if(!window.indexedDB){
+    document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#c62828;font-size:18px;">瀏覽器不支援 IndexedDB<br>This browser does not support IndexedDB</div>';
+    return;
+  }
+  try{
+    db = await openDB();
+  }catch(e){
+    const detail = (e && e.target && e.target.error) ? e.target.error.name : '';
+    document.body.innerHTML = `<div style="padding:40px;text-align:center;color:#c62828;font-size:18px;">儲存功能異常，請重新整理<br>IndexedDB failed to open${detail?': '+detail:''}<br><span style="font-size:13px;color:#888;">若在預覽視窗看到此訊息，請改用 Safari 開啟此檔案。<br>If seen in an embedded preview, open this file directly in Safari instead.</span></div>`;
+    return;
+  }
+  const existing = await idbGetAll('equipment');
+  const existingIds = new Set(existing.map(e=>e.id));
+  for(const item of EQUIPMENT_LIST){
+    if(!existingIds.has(item.id)){
+      await idbPut('equipment', {
+        id:item.id, floor:item.floor, type:item.type,
+        brand:'', specs:'', inspectionResult:'', remarks:'',
+        status:'pending', photoCount:0, updatedAt:null
+      });
+    }
+  }
+  await refreshEquipmentMap();
+  document.getElementById('homeMascots').innerHTML = mascotSVG('m', 6) + mascotSVG('f', 6);
+  renderHome();
+}
+function spriteGenderFor(id){
+  let h = 0;
+  for(let i=0;i<id.length;i++) h += id.charCodeAt(i);
+  return h % 2 === 0 ? 'm' : 'f';
+}
+async function refreshEquipmentMap(){
+  const all = await idbGetAll('equipment');
+  equipmentMap = {};
+  for(const e of all) equipmentMap[e.id] = e;
+}
+
+function goTo(screen){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+screen).classList.add('active');
+  if(screen==='home') renderHome();
+  if(screen==='browser') renderFloorList();
+  if(screen==='export') renderExport();
+}
+
+// ---------- Screen 1: Home ----------
+function renderHome(){
+  const all = Object.values(equipmentMap);
+  const done = all.filter(e=>e.status==='done').length;
+  document.getElementById('homeProgressText').textContent = `${done} / ${all.length} 設備完成`;
+  document.getElementById('homeProgressFill').style.width = (all.length?done/all.length*100:0)+'%';
+
+  const byFloor = {};
+  for(const e of all){ (byFloor[e.floor] = byFloor[e.floor]||[]).push(e); }
+  const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
+  let html = '';
+  for(const f of floors){
+    const items = byFloor[f];
+    const d = items.filter(i=>i.status==='done').length;
+    const mark = d===items.length ? '✓' : '';
+    html += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;">
+      <span>${f}</span><span>${d}/${items.length} ${mark}</span></div>`;
+  }
+  document.getElementById('floorBreakdown').innerHTML = html;
+
+  const lastUpdated = all.reduce((m,e)=>e.updatedAt && e.updatedAt>m ? e.updatedAt : m, 0);
+  document.getElementById('lastUpdatedText').textContent = lastUpdated ? '最後更新: '+new Date(lastUpdated).toLocaleString('zh-TW') : '尚未開始查驗';
+}
+
+// ---------- Screen 2: Browser ----------
+function renderFloorList(){
+  currentFloor = null;
+  document.getElementById('browserTitle').textContent = '樓層 Floors';
+  const all = Object.values(equipmentMap);
+  const byFloor = {};
+  for(const e of all){ (byFloor[e.floor] = byFloor[e.floor]||[]).push(e); }
+  const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
+  let html = '';
+  for(const f of floors){
+    const items = byFloor[f];
+    const d = items.filter(i=>i.status==='done').length;
+    const allDone = d===items.length;
+    html += `<div class="card" style="display:flex;justify-content:space-between;align-items:center;" onclick="renderEquipmentList('${f}')">
+      <div><span class="status-dot ${allDone?'dot-done':(d>0?'dot-inprog':'dot-pending')}"></span><strong>${f}</strong></div>
+      <div>${d}/${items.length} 完成</div>
+    </div>`;
+  }
+  document.getElementById('browserContent').innerHTML = html;
+}
+
+function statusBadge(status){
+  if(status==='done') return '<span class="badge badge-done">🟢 完成</span>';
+  if(status==='in_progress') return '<span class="badge badge-inprog">🟡 進行中</span>';
+  return '<span class="badge badge-pending">🔴 待查驗</span>';
+}
+
+function renderEquipmentList(floor){
+  currentFloor = floor;
+  document.getElementById('browserTitle').textContent = floor;
+  const items = Object.values(equipmentMap).filter(e=>e.floor===floor);
+  const byType = {};
+  for(const e of items){ (byType[e.type]=byType[e.type]||[]).push(e); }
+  let html = '';
+  for(const type of Object.keys(byType)){
+    const group = byType[type];
+    html += `<div class="type-header">${type} (${group.length})</div>`;
+    for(const e of group){
+      html += `<div class="list-item" onclick="openDetail('${e.id}')">
+        <div>
+          <div><strong>${e.id}</strong> ${statusBadge(e.status)}</div>
+          <div class="meta">📷 ${e.photoCount}${e.brand ? ' · '+e.brand : ''}</div>
+        </div>
+      </div>`;
+    }
+  }
+  document.getElementById('browserContent').innerHTML = html;
+}
+
+function browserBack(){
+  if(currentFloor){ renderFloorList(); }
+  else{ goTo('home'); }
+}
+
+// ---------- Screen 3: Detail ----------
+async function openDetail(id){
+  currentEquipmentId = id;
+  const e = equipmentMap[id];
+  document.getElementById('detailTitle').textContent = `${e.id} | ${e.type} | ${e.floor}`;
+  document.getElementById('detailMascot').innerHTML = mascotSVG(spriteGenderFor(e.id), 3);
+  document.getElementById('inpBrand').value = e.brand || '';
+  document.getElementById('inpSpecs').value = e.specs || '';
+  document.getElementById('inpRemarks').value = e.remarks || '';
+  document.getElementById('cameraError').textContent = '';
+  setResultUI(e.inspectionResult);
+  updateDoneBtn(e.status);
+  await renderPhotoGrid(id);
+  goTo('detailRaw');
+}
+// override goTo for detail since it's not in the simple switch
+function goTo(screen){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  if(screen==='detailRaw'){ document.getElementById('screen-detail').classList.add('active'); return; }
+  document.getElementById('screen-'+screen).classList.add('active');
+  if(screen==='home') renderHome();
+  if(screen==='browser') renderFloorList();
+  if(screen==='export') renderExport();
+}
+
+function setResultUI(result){
+  document.getElementById('optPass').className = 'radio-opt' + (result==='pass'?' selected-pass':'');
+  document.getElementById('optFail').className = 'radio-opt' + (result==='fail'?' selected-fail':'');
+  document.getElementById('optNa').className = 'radio-opt' + (result==='na'?' selected-na':'');
+}
+function setResult(r){
+  const e = equipmentMap[currentEquipmentId];
+  e.inspectionResult = (e.inspectionResult===r) ? '' : r;
+  setResultUI(e.inspectionResult);
+  saveCurrentEquipment();
+}
+function updateDoneBtn(status){
+  const btn = document.getElementById('doneBtn');
+  if(status==='done'){
+    btn.textContent = '重新開啟 Reopen';
+    btn.className = 'btn-grey';
+  } else {
+    btn.textContent = '標記完成 Mark as Done';
+    btn.className = 'btn-green';
+  }
+}
+async function toggleDone(){
+  const e = equipmentMap[currentEquipmentId];
+  e.status = e.status==='done' ? 'in_progress' : 'done';
+  await saveCurrentEquipment();
+  updateDoneBtn(e.status);
+  if(e.status==='done') showAchievement(`${e.id} 查驗完成！`, spriteGenderFor(e.id));
+}
+
+function debouncedSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    const e = equipmentMap[currentEquipmentId];
+    e.brand = document.getElementById('inpBrand').value;
+    e.specs = document.getElementById('inpSpecs').value;
+    e.remarks = document.getElementById('inpRemarks').value;
+    if(e.status==='pending' && (e.brand || e.specs || e.remarks)) e.status = 'in_progress';
+    saveCurrentEquipment();
+  }, 500);
+}
+async function saveCurrentEquipment(){
+  const e = equipmentMap[currentEquipmentId];
+  e.updatedAt = Date.now();
+  await idbPut('equipment', e);
+}
+
+async function renderPhotoGrid(id){
+  const photos = await idbGetByIndex('photos','equipmentId', id);
+  photos.sort((a,b)=>a.takenAt-b.takenAt);
+  const e = equipmentMap[id];
+  e.photoCount = photos.length;
+  let html = '';
+  for(const p of photos){
+    const url = URL.createObjectURL(p.blob);
+    html += `<img class="photo-thumb" src="${url}" onclick="previewPhoto('${p.photoId}','${url}')">`;
+  }
+  document.getElementById('photoGrid').innerHTML = html;
+}
+
+function previewPhoto(photoId, url){
+  previewedPhotoId = photoId;
+  document.getElementById('previewImg').src = url;
+  document.getElementById('previewOverlay').classList.add('active');
+}
+function closePreview(){
+  document.getElementById('previewOverlay').classList.remove('active');
+  previewedPhotoId = null;
+}
+async function deletePreviewedPhoto(){
+  if(!previewedPhotoId) return;
+  await idbDelete('photos', previewedPhotoId);
+  closePreview();
+  await renderPhotoGrid(currentEquipmentId);
+  await saveCurrentEquipment();
+}
+
+function triggerCamera(){ document.getElementById('cameraInput').click(); }
+function triggerGallery(){ document.getElementById('galleryInput').click(); }
+
+async function handlePhotoFile(file){
+  if(!file) return;
+  document.getElementById('cameraError').textContent = '';
+  try{
+    const blob = await compressImage(file);
+    const photos = await idbGetByIndex('photos','equipmentId', currentEquipmentId);
+    const seq = String(photos.length+1).padStart(3,'0');
+    const filename = `${currentEquipmentId}_${seq}.jpg`;
+    const photoId = `${currentEquipmentId}_${Date.now()}`;
+    await idbPut('photos', {photoId, equipmentId:currentEquipmentId, blob, filename, takenAt:Date.now()});
+    const e = equipmentMap[currentEquipmentId];
+    if(e.status==='pending') e.status='in_progress';
+    await saveCurrentEquipment();
+    await renderPhotoGrid(currentEquipmentId);
+    showAchievement(`已拍攝 ${e.photoCount} 張照片`, spriteGenderFor(currentEquipmentId));
+  }catch(err){
+    document.getElementById('cameraError').textContent = '請允許相機權限 / Please allow camera access';
+  }
+}
+document.getElementById('cameraInput').addEventListener('change', (e)=>{
+  handlePhotoFile(e.target.files[0]);
+  e.target.value = '';
+});
+document.getElementById('galleryInput').addEventListener('change', (e)=>{
+  handlePhotoFile(e.target.files[0]);
+  e.target.value = '';
+});
+
+function compressImage(file){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e)=>{ img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = ()=>{
+      let {width, height} = img;
+      const max = 1920;
+      if(width>max || height>max){
+        if(width>height){ height = Math.round(height*max/width); width = max; }
+        else{ width = Math.round(width*max/height); height = max; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob((blob)=>{
+        if(blob) resolve(blob); else reject(new Error('compress failed'));
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- Screen 4: Export ----------
+function renderExport(){
+  const all = Object.values(equipmentMap);
+  const done = all.filter(e=>e.status==='done');
+  const incomplete = all.filter(e=>e.status!=='done');
+  const byFloor = {};
+  for(const e of incomplete){ (byFloor[e.floor]=byFloor[e.floor]||[]).push(e.id); }
+  const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
+  let html = `<div style="font-weight:700;margin-bottom:8px;">${done.length} / ${all.length} 已完成</div>`;
+  if(floors.length){
+    html += '<div style="font-size:14px;color:#666;">未完成項目：</div>';
+    for(const f of floors){
+      html += `<div style="font-size:13px;margin:4px 0;"><strong>${f}</strong>: ${byFloor[f].join(', ')}</div>`;
+    }
+  } else {
+    html += '<div style="color:var(--done);font-weight:600;">全部完成 🎉</div>';
+  }
+  document.getElementById('exportSummary').innerHTML = html;
+  document.getElementById('exportMsg').innerHTML = '';
+}
+
+function dateStamp(){
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+}
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+function showSpinner(text){
+  document.getElementById('spinnerText').textContent = text;
+  document.getElementById('spinnerOverlay').classList.add('active');
+}
+function hideSpinner(){ document.getElementById('spinnerOverlay').classList.remove('active'); }
+
+async function exportZip(){
+  const allPhotos = await idbGetAll('photos');
+  if(allPhotos.length===0){ alert('沒有照片可匯出 No photos to export'); return; }
+  showSpinner('正在產生 ZIP…');
+  try{
+    const zip = new JSZip();
+    const folder = zip.folder('photos');
+    const byEquip = {};
+    for(const p of allPhotos){ (byEquip[p.equipmentId]=byEquip[p.equipmentId]||[]).push(p); }
+    for(const eqId of Object.keys(byEquip)){
+      const sub = folder.folder(eqId);
+      for(const p of byEquip[eqId]){ sub.file(p.filename, p.blob); }
+    }
+    const totalSize = allPhotos.reduce((s,p)=>s+(p.blob.size||0),0);
+    if(totalSize > 500*1024*1024){ alert('ZIP 檔案較大，可能需要一段時間'); }
+    const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE'}, (meta)=>{
+      document.getElementById('spinnerText').textContent = `正在產生 ZIP… ${Math.round(meta.percent)}%`;
+    });
+    downloadBlob(blob, `inspection_photos_${dateStamp()}.zip`);
+  }finally{
+    hideSpinner();
+  }
+}
+
+function resultSymbol(r){
+  if(r==='pass') return '○';
+  if(r==='fail') return '✕';
+  if(r==='na') return '/';
+  return '';
+}
+function statusLabel(s){
+  if(s==='done') return '完成';
+  if(s==='in_progress') return '進行中';
+  return '待查驗';
+}
+async function exportExcel(){
+  const all = await idbGetAll('equipment');
+  const byFloor = {};
+  for(const e of all){ (byFloor[e.floor]=byFloor[e.floor]||[]).push(e); }
+  const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
+  const wb = XLSX.utils.book_new();
+  for(const f of floors){
+    const rows = byFloor[f].map(e=>({
+      '樓層':e.floor, '設備類型':e.type, '設備編號':e.id,
+      '廠牌':e.brand||'', '規格':e.specs||'',
+      '查驗結果':resultSymbol(e.inspectionResult), '照片數量':e.photoCount||0,
+      '備註':e.remarks||'', '查驗狀態':statusLabel(e.status)
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:6},{wch:14},{wch:16},{wch:14},{wch:24},{wch:10},{wch:10},{wch:24},{wch:10}];
+    XLSX.utils.book_append_sheet(wb, ws, f.slice(0,31));
+  }
+  XLSX.writeFile(wb, `自主檢查表_${dateStamp()}.xlsx`);
+}
+
+async function exportJson(){
+  const all = await idbGetAll('equipment');
+  const data = all.map(({id,floor,type,brand,specs,inspectionResult,remarks,status,photoCount,updatedAt})=>
+    ({id,floor,type,brand,specs,inspectionResult,remarks,status,photoCount,updatedAt}));
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  downloadBlob(blob, `inspection_backup_${dateStamp()}.json`);
+}
+
+document.getElementById('importInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    let count = 0;
+    for(const item of data){
+      if(equipmentMap[item.id]){
+        const cur = equipmentMap[item.id];
+        cur.brand = item.brand ?? cur.brand;
+        cur.specs = item.specs ?? cur.specs;
+        cur.inspectionResult = item.inspectionResult ?? cur.inspectionResult;
+        cur.remarks = item.remarks ?? cur.remarks;
+        cur.status = item.status ?? cur.status;
+        cur.updatedAt = Date.now();
+        await idbPut('equipment', cur);
+        count++;
+      }
+    }
+    document.getElementById('exportMsg').innerHTML = `<div class="msg msg-ok">已匯入 ${count} 筆設備資料</div>`;
+    renderExport();
+  }catch(err){
+    document.getElementById('exportMsg').innerHTML = `<div class="msg msg-err">匯入失敗 Import failed</div>`;
+  }
+});
+
+initApp();
+</script>
+</body>
+</html>
