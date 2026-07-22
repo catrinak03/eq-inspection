@@ -12,6 +12,7 @@
 :root{
   --bg:#7ec8e3; --primary:#1a73e8; --pending:#9e9e9e; --inprog:#ff9800; --done:#4caf50; --fail:#f44336;
   --panel:#c6c6c6; --panel-light:#fff; --panel-dark:#555; --slot:#8b8b8b;
+  --pink:#d9518d; --pink-light:#f0a8cc; --steel:#aab4bd; --steel-light:#c9d0d6; --steel-dark:#6d7681;
 }
 *{box-sizing:border-box;}
 html, body{image-rendering:pixelated;}
@@ -84,6 +85,13 @@ textarea{min-height:60px; resize:vertical;}
 .topbar{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
 .topbar button{width:44px; height:44px; font-size:18px; background:#dcdcdc; box-shadow:inset 2px 2px 0 #fff, inset -2px -2px 0 #888;}
 .topbar h2{margin:0; flex:1;}
+.building-svg-wrap{display:flex; justify-content:center; margin:4px 0 16px;}
+.building-svg-wrap svg{max-width:100%; height:auto;}
+.floor-rect{cursor:pointer;}
+.floor-rect:active rect:first-of-type{opacity:.7;}
+.building-legend{display:flex; justify-content:center; gap:14px; font-size:9px; color:#fff; text-shadow:1px 1px 0 #2d5d8a; margin-bottom:10px;}
+.building-legend span{display:flex; align-items:center; gap:4px;}
+.building-legend i{display:inline-block; width:10px; height:10px;}
 .radio-group{display:flex; gap:10px; margin-top:4px;}
 .radio-opt{flex:1; text-align:center; padding:10px 4px; background:#dcdcdc; font-weight:400; cursor:pointer; font-size:11px; box-shadow:inset 2px 2px 0 #fff, inset -2px -2px 0 #888;}
 .radio-opt.selected-pass{background:var(--done); color:#fff; box-shadow:inset 2px 2px 0 #7be087, inset -2px -2px 0 #1f6e28;}
@@ -125,17 +133,16 @@ input[type=file]{display:none;}
 </head>
 <body>
 
-<!-- SCREEN 1: HOME -->
+<!-- SCREEN 1: HOME (building = the whole screen, click a floor to start inspecting) -->
 <div class="screen active" id="screen-home">
   <h1>設備安裝查驗 EQ Inspection</h1>
-  <div class="mascot-row" id="homeMascots"></div>
   <div class="card">
     <div id="homeProgressText" style="font-weight:700; font-size:17px;">0 / 171 設備完成</div>
     <div class="progress-bar"><div class="progress-fill" id="homeProgressFill" style="width:0%"></div></div>
   </div>
-  <div class="card" id="floorBreakdown"></div>
-  <button class="btn-primary" onclick="goTo('browser')">開始查驗 Start Inspection</button>
-  <div style="height:10px"></div>
+  <div class="mascot-row" id="homeMascots"></div>
+  <div id="homeBuildingArea"></div>
+  <div style="margin-top:0; margin-bottom:8px; text-align:center; font-size:13px; color:#2d5d8a; text-shadow:1px 1px 0 rgba(255,255,255,.5);">點擊樓層開始查驗</div>
   <button class="btn-secondary" onclick="goTo('export')">匯出 Export</button>
   <div class="small-text" id="lastUpdatedText"></div>
 </div>
@@ -661,11 +668,11 @@ function goTo(screen){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById('screen-'+screen).classList.add('active');
   if(screen==='home') renderHome();
-  if(screen==='browser') renderFloorList();
+  if(screen==='browser') currentFloor && renderEquipmentList(currentFloor);
   if(screen==='export') renderExport();
 }
 
-// ---------- Screen 1: Home ----------
+// ---------- Screen 1: Home (the building itself is the entry point) ----------
 function renderHome(){
   const all = Object.values(equipmentMap);
   const done = all.filter(e=>e.status==='done').length;
@@ -675,39 +682,61 @@ function renderHome(){
   const byFloor = {};
   for(const e of all){ (byFloor[e.floor] = byFloor[e.floor]||[]).push(e); }
   const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
-  let html = '';
-  for(const f of floors){
-    const items = byFloor[f];
-    const d = items.filter(i=>i.status==='done').length;
-    const mark = d===items.length ? '✓' : '';
-    html += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px;">
-      <span>${f}</span><span>${d}/${items.length} ${mark}</span></div>`;
-  }
-  document.getElementById('floorBreakdown').innerHTML = html;
+  const legend = `<div class="building-legend">
+    <span><i style="background:var(--pink)"></i>已完成</span>
+    <span><i style="background:var(--pink-light)"></i>進行中</span>
+    <span><i style="background:var(--steel)"></i>待查驗</span>
+  </div>`;
+  document.getElementById('homeBuildingArea').innerHTML = legend + buildingSVG(floors, byFloor);
 
   const lastUpdated = all.reduce((m,e)=>e.updatedAt && e.updatedAt>m ? e.updatedAt : m, 0);
   document.getElementById('lastUpdatedText').textContent = lastUpdated ? '最後更新: '+new Date(lastUpdated).toLocaleString('zh-TW') : '尚未開始查驗';
 }
 
-// ---------- Screen 2: Browser ----------
-function renderFloorList(){
-  currentFloor = null;
-  document.getElementById('browserTitle').textContent = '樓層 Floors';
-  const all = Object.values(equipmentMap);
-  const byFloor = {};
-  for(const e of all){ (byFloor[e.floor] = byFloor[e.floor]||[]).push(e); }
-  const floors = Object.keys(byFloor).sort((a,b)=>FLOOR_ORDER.indexOf(a)-FLOOR_ORDER.indexOf(b));
-  let html = '';
-  for(const f of floors){
-    const items = byFloor[f];
+// ---------- Screen 2: Browser (always a single floor's equipment list now) ----------
+// 點大樓外觀某樓層 -> 直接切到該樓層設備清單，不再有中間的「樓層列表」畫面
+function enterFloor(floor){
+  renderEquipmentList(floor);
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-browser').classList.add('active');
+}
+
+// EPOCH 大樓外觀：由上而下堆疊樓層，點擊某樓層直接進入該樓層設備清單
+// ponytail: 用純 SVG 矩形手繪示意圖，不做逐窗寫實 3D 建模，先驗證「點外觀進樓層」這個互動本身
+function buildingSVG(floors, byFloor){
+  const W = 240, FH = 30, GAP = 3, CAP = 40, BASE = 18;
+  let y = CAP;
+  let body = '';
+  floors.forEach((f, idx)=>{
+    const items = byFloor[f] || [];
+    const n = items.length;
     const d = items.filter(i=>i.status==='done').length;
-    const allDone = d===items.length;
-    html += `<div class="card" style="display:flex;justify-content:space-between;align-items:center;" onclick="renderEquipmentList('${f}')">
-      <div><span class="status-dot ${allDone?'dot-done':(d>0?'dot-inprog':'dot-pending')}"></span><strong>${f}</strong></div>
-      <div>${d}/${items.length} 完成</div>
-    </div>`;
-  }
-  document.getElementById('browserContent').innerHTML = html;
+    const allDone = n>0 && d===n;
+    const inprog = d>0 && !allDone;
+    const fill = allDone ? 'var(--pink)' : (inprog ? 'var(--pink-light)' : 'var(--steel)');
+    const isMechanical = idx < 2; // 頂部設備層退縮，呼應實際外觀的機房退縮量體
+    const w = isMechanical ? W-56 : W;
+    const x = (W-w)/2;
+    let windows = '';
+    const cols = 6;
+    for(let i=0;i<cols;i++){
+      const ww = (w-16)/cols;
+      windows += `<rect x="${x+8+i*ww+2}" y="${y+6}" width="${ww-4}" height="${FH-12}" fill="rgba(255,255,255,.3)"/>`;
+    }
+    body += `<g class="floor-rect" onclick="enterFloor('${f}')">
+      <rect x="${x}" y="${y}" width="${w}" height="${FH}" fill="${fill}" stroke="var(--steel-dark)" stroke-width="2"/>
+      ${windows}
+      <text x="${x+10}" y="${y+FH/2+4}" font-family="'Press Start 2P',monospace" font-size="9" fill="#222">${f}</text>
+      <text x="${x+w-10}" y="${y+FH/2+4}" text-anchor="end" font-family="'Press Start 2P',monospace" font-size="8" fill="#222">${d}/${n}</text>
+    </g>`;
+    y += FH+GAP;
+  });
+  body += `<rect x="0" y="${y}" width="${W}" height="${BASE}" fill="var(--steel-dark)"/>`;
+  y += BASE;
+  const cap = `<rect x="${W/2-46}" y="4" width="92" height="28" fill="#fff" stroke="var(--steel-dark)" stroke-width="2"/>
+    <rect x="${W/2-40}" y="10" width="7" height="16" fill="var(--pink)"/>
+    <text x="${W/2+38}" y="22" text-anchor="end" font-family="'Press Start 2P',monospace" font-size="8" fill="#2b2b2b">EPOCH</text>`;
+  return `<div class="building-svg-wrap"><svg width="${W}" height="${y}" viewBox="0 0 ${W} ${y}" xmlns="http://www.w3.org/2000/svg">${cap}${body}</svg></div>`;
 }
 
 function statusBadge(status){
@@ -739,8 +768,7 @@ function renderEquipmentList(floor){
 }
 
 function browserBack(){
-  if(currentFloor){ renderFloorList(); }
-  else{ goTo('home'); }
+  goTo('home');
 }
 
 // ---------- Screen 3: Detail ----------
@@ -764,7 +792,7 @@ function goTo(screen){
   if(screen==='detailRaw'){ document.getElementById('screen-detail').classList.add('active'); return; }
   document.getElementById('screen-'+screen).classList.add('active');
   if(screen==='home') renderHome();
-  if(screen==='browser') renderFloorList();
+  if(screen==='browser') currentFloor && renderEquipmentList(currentFloor);
   if(screen==='export') renderExport();
 }
 
